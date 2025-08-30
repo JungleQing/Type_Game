@@ -1,455 +1,483 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>TypeBeat — 歌词打字对战（Demo）</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <meta name="description" content="在线歌词打字练习，支持公共领域示例、粘贴歌词、WPM、准确率与计时模式。">
-  <style>
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-    .cursor-char { background: rgba(251, 191, 36, 0.5); border-radius: 2px; }
-    .wrong-char { text-decoration: underline; text-decoration-color: rgba(244, 63, 94, 0.4); }
-  </style>
-</head>
-<body class="min-h-screen bg-gradient-to-b from-white to-zinc-50 text-zinc-900">
-  <header class="sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/90 border-b border-zinc-200">
-    <div class="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
-      <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>
-      </svg>
-      <h1 class="text-xl font-semibold">TypeBeat — 歌词打字对战（Demo / 无需后端）</h1>
-      <div class="ml-auto hidden sm:flex items-center gap-2 text-sm">
-        <span class="px-2 py-1 rounded bg-zinc-100">WPM: <b id="stat-wpm">0</b></span>
-        <span class="px-2 py-1 rounded bg-zinc-100">准确率: <b id="stat-acc">100%</b></span>
-        <span class="px-2 py-1 rounded bg-zinc-100">进度: <b id="stat-prog">0%</b></span>
-        <span class="px-2 py-1 rounded bg-zinc-100 hidden" id="stat-countdown-wrap">倒计时: <b id="stat-countdown">0s</b></span>
-      </div>
-    </div>
-  </header>
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import { Music, Play, Pause, RefreshCw, Settings, Upload, Search } from "lucide-react";
 
-  <main class="mx-auto max-w-5xl px-4 py-6 grid gap-6">
-    <section class="grid gap-4">
-      <div class="grid md:grid-cols-3 gap-2 text-sm">
-        <button id="tab-search" class="px-3 py-2 rounded-lg border bg-zinc-900 text-white">搜索歌曲</button>
-        <button id="tab-demo" class="px-3 py-2 rounded-lg border bg-white">选择示例（公共领域）</button>
-        <button id="tab-paste" class="px-3 py-2 rounded-lg border bg-white">粘贴歌词/文本</button>
-      </div>
+/**
+ * TypeBeat — Lyrics Typing Racer (Demo)
+ * --------------------------------------------------
+ * 功能
+ * - 选择/搜索歌曲（演示用公共领域文本），或粘贴歌词
+ * - 实时打字高亮：已对、已错、当前字符
+ * - 计时/全程模式、WPM（每分钟词数）、准确率、进度
+ * - 忽略大小写/标点、规范空白选项
+ * - 结果面板与一键重来
+ *
+ * 说明
+ * - 出于版权原因，此 DEMO 不内置受版权保护的歌词（如 “Try Everything”）。
+ * - 你可以：① 粘贴你有权使用的歌词；② 使用公共领域文本；③
+ *   自行接入第三方歌词 API（在 fetchLyrics() 处留好了接口）。
+ * - 仅前端单文件，适合托管到任何静态网站（Vercel / Netlify / GitHub Pages）。
+ */
 
-      <!-- 搜索（仅演示库） -->
-      <div id="panel-search" class="grid gap-2">
-        <div class="grid md:grid-cols-[1fr_auto] gap-2 items-center">
-          <input id="search-input" class="w-full px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-zinc-300" placeholder="输入歌名或歌手（演示库）…">
-          <button id="search-btn" class="px-3 py-2 rounded-lg bg-zinc-900 text-white">搜索并加载</button>
-        </div>
-        <p id="search-note" class="text-amber-600 text-sm"></p>
-      </div>
+// —— 公共领域示例（可直接用于练习） —— //
+const DEMO_LIBRARY: Record<string, { title: string; artist: string; text: string }> = {
+  amazingGrace: {
+    title: "Amazing Grace",
+    artist: "Traditional",
+    text:
+      `Amazing grace! how sweet the sound\nThat saved a wretch like me!\nI once was lost, but now am found;\nWas blind, but now I see.\n\n'Twas grace that taught my heart to fear,\nAnd grace my fears relieved;\nHow precious did that grace appear\nThe hour I first believed!\n\nThrough many dangers, toils, and snares,\nI have already come;\n'Tis grace hath brought me safe thus far,\nAnd grace will lead me home.\n\nThe Lord has promised good to me,\nHis word my hope secures;\nHe will my shield and portion be,\nAs long as life endures.`,
+  },
+  twinkle: {
+    title: "Twinkle, Twinkle, Little Star",
+    artist: "Traditional",
+    text:
+      `Twinkle, twinkle, little star,\nHow I wonder what you are!\nUp above the world so high,\nLike a diamond in the sky.\n\nWhen the blazing sun is gone,\nWhen he nothing shines upon,\nThen you show your little light,\nTwinkle, twinkle, all the night.`,
+  },
+  sonnet18: {
+    title: "Sonnet 18",
+    artist: "William Shakespeare",
+    text:
+      `Shall I compare thee to a summer's day?\nThou art more lovely and more temperate:\nRough winds do shake the darling buds of May,\nAnd summer's lease hath all too short a date;\nSometime too hot the eye of heaven shines,\nAnd often is his gold complexion dimm'd;\nAnd every fair from fair sometime declines,\nBy chance or nature's changing course untrimm'd;\nBut thy eternal summer shall not fade,\nNor lose possession of that fair thou ow'st;\nNor shall Death brag thou wander'st in his shade,\nWhen in eternal lines to time thou grow'st:\nSo long as men can breathe or eyes can see,\nSo long lives this, and this gives life to thee.`,
+  },
+};
 
-      <!-- 示例库 -->
-      <div id="panel-demo" class="grid sm:grid-cols-3 gap-2 hidden"></div>
-
-      <!-- 粘贴 -->
-      <div id="panel-paste" class="grid gap-2 hidden">
-        <textarea id="paste-area" class="w-full min-h-[160px] p-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-zinc-300"
-          placeholder="在此粘贴你有权使用的歌词/英文文本（保留换行更像歌词）。例如：Try Everything 的完整歌词请勿内置，但可粘贴用于练习。"></textarea>
-        <div class="flex items-center gap-2">
-          <button id="paste-load" class="px-3 py-2 rounded-lg bg-zinc-900 text-white">加载为练习文本</button>
-          <p class="text-xs text-zinc-500">* 请确保你拥有该文本的使用权限。</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="grid md:grid-cols-2 gap-4">
-      <div class="rounded-xl border bg-white p-4 grid gap-3">
-        <div class="font-medium flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
-          </svg>打字设置
-        </div>
-        <div class="flex flex-wrap gap-3 text-sm">
-          <label class="inline-flex items-center gap-2 select-none">
-            <input type="checkbox" id="opt-case" checked> 区分大小写
-          </label>
-          <label class="inline-flex items-center gap-2 select-none">
-            <input type="checkbox" id="opt-punct" checked> 保留标点
-          </label>
-          <label class="inline-flex items-center gap-2 select-none">
-            <input type="checkbox" id="opt-space" checked> 规范空白
-          </label>
-        </div>
-        <div class="flex items-center gap-3 text-sm">
-          <span>计时模式：</span>
-          <div class="flex gap-2" id="timer-buttons"></div>
-        </div>
-      </div>
-
-      <div class="rounded-xl border bg-white p-4 grid gap-3">
-        <div class="font-medium flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle>
-          </svg>当前文本
-        </div>
-        <div class="text-sm text-zinc-600" id="current-text">尚未加载文本。请选择示例、搜索（演示库）或粘贴歌词。</div>
-        <div class="flex items-center gap-2">
-          <button id="btn-start" class="px-3 py-2 rounded-lg bg-zinc-900 text-white disabled:opacity-50" disabled>开始练习</button>
-          <button id="btn-reset" class="px-3 py-2 rounded-lg border">重置</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="rounded-2xl border bg-white p-4">
-      <div class="flex items-center justify-between mb-3 text-sm">
-        <div class="flex items-center gap-2">
-          <span class="px-2 py-1 rounded bg-zinc-100">WPM <b id="wpm">0</b></span>
-          <span class="px-2 py-1 rounded bg-zinc-100">准确率 <b id="acc">100%</b></span>
-          <span class="px-2 py-1 rounded bg-zinc-100">错误 <b id="mistakes">0</b></span>
-          <span class="px-2 py-1 rounded bg-zinc-100">进度 <b id="prog">0%</b></span>
-          <span class="px-2 py-1 rounded bg-zinc-100 hidden" id="cd-wrap">倒计时 <b id="cd">0s</b></span>
-        </div>
-        <div class="w-40 h-2 rounded bg-zinc-100 overflow-hidden">
-          <div id="bar" class="h-full bg-zinc-900" style="width:0%"></div>
-        </div>
-      </div>
-
-      <div id="viewport" class="relative min-h-[240px] max-h-[420px] whitespace-pre-wrap leading-7 tracking-wide rounded-xl border p-4 overflow-auto" tabindex="0">
-        <div id="render" class="mono text-[15px] text-zinc-700"></div>
-        <textarea id="ghost" class="absolute inset-0 opacity-0 pointer-events-auto" spellcheck="false" autocapitalize="none" autocomplete="off"></textarea>
-      </div>
-
-      <div id="result" class="mt-4 p-4 rounded-xl border bg-zinc-50 hidden">
-        <div class="text-lg font-semibold mb-2">本次成绩</div>
-        <div class="flex flex-wrap gap-3 text-sm">
-          <span class="px-2 py-1 rounded bg-white border">WPM <b id="r-wpm">0</b></span>
-          <span class="px-2 py-1 rounded bg-white border">准确率 <b id="r-acc">0%</b></span>
-          <span class="px-2 py-1 rounded bg-white border">用时 <b id="r-time">0s</b></span>
-          <span class="px-2 py-1 rounded bg-white border">字符数 <b id="r-chars">0/0</b></span>
-        </div>
-        <div class="mt-3 flex items-center gap-2">
-          <button id="again" class="px-3 py-2 rounded-lg bg-zinc-900 text-white">再来一次</button>
-          <button id="change" class="px-3 py-2 rounded-lg border">换个文本</button>
-        </div>
-      </div>
-
-      <p id="hint" class="mt-3 text-sm text-zinc-500 hidden">提示：开始后直接打字即可。退格可改错；选“计时模式”可进行限时挑战。</p>
-    </section>
-
-    <footer class="text-xs text-zinc-500 grid gap-1 pb-8">
-      <p>版权提示：请仅使用你拥有使用权的歌词或公共领域文本。演示库中的文本为公共领域，不包含如 “Try Everything” 等受版权保护作品的完整歌词。</p>
-      <p>想要接入在线歌词搜索？可在未来添加后端或第三方合法 API。当前版本属于纯静态前端，部署到任意静态托管即可“联网使用”。</p>
-    </footer>
-  </main>
-
-<script>
-// === Demo Library (public domain) ===
-const LIB = [
-  {key: "amazingGrace", title: "Amazing Grace", artist: "Traditional", text:
-`Amazing grace! how sweet the sound
-That saved a wretch like me!
-I once was lost, but now am found;
-Was blind, but now I see.
-
-'Twas grace that taught my heart to fear,
-And grace my fears relieved;
-How precious did that grace appear
-The hour I first believed!
-
-Through many dangers, toils, and snares,
-I have already come;
-'Tis grace hath brought me safe thus far,
-And grace will lead me home.
-
-The Lord has promised good to me,
-His word my hope secures;
-He will my shield and portion be,
-As long as life endures.`},
-  {key: "twinkle", title: "Twinkle, Twinkle, Little Star", artist: "Traditional", text:
-`Twinkle, twinkle, little star,
-How I wonder what you are!
-Up above the world so high,
-Like a diamond in the sky.
-
-When the blazing sun is gone,
-When he nothing shines upon,
-Then you show your little light,
-Twinkle, twinkle, all the night.`},
-  {key: "sonnet18", title: "Sonnet 18", artist: "William Shakespeare", text:
-`Shall I compare thee to a summer's day?
-Thou art more lovely and more temperate:
-Rough winds do shake the darling buds of May,
-And summer's lease hath all too short a date;
-Sometime too hot the eye of heaven shines,
-And often is his gold complexion dimm'd;
-And every fair from fair sometime declines,
-By chance or nature's changing course untrimm'd;
-But thy eternal summer shall not fade,
-Nor lose possession of that fair thou ow'st;
-Nor shall Death brag thou wander'st in his shade,
-When in eternal lines to time thou grow'st:
-So long as men can breathe or eyes can see,
-So long lives this, and this gives life to thee.`},
-];
-
-// === State ===
-let rawText = "";
-let norm = { keepCase: true, keepPunct: true, normalizeSpaces: true };
-let timerMode = "none"; // "none"|30|60|120
-let startedAt = null;
-let endedAt = null;
-let typed = "";
-
-// === DOM ===
-const $ = (id) => document.getElementById(id);
-const tabSearch = $("tab-search"), tabDemo = $("tab-demo"), tabPaste = $("tab-paste");
-const panelSearch = $("panel-search"), panelDemo = $("panel-demo"), panelPaste = $("panel-paste");
-const searchInput = $("search-input"), searchBtn = $("search-btn"), searchNote = $("search-note");
-const optCase = $("opt-case"), optPunct = $("opt-punct"), optSpace = $("opt-space");
-const timerButtonsWrap = $("timer-buttons");
-const currentText = $("current-text");
-const btnStart = $("btn-start"), btnReset = $("btn-reset");
-const viewport = $("viewport"), render = $("render"), ghost = $("ghost");
-const resultBox = $("result"), hint = $("hint");
-const again = $("again"), changeBtn = $("change");
-const pasteArea = $("paste-area"), pasteLoad = $("paste-load");
-
-const statW = $("stat-wpm"), statA = $("stat-acc"), statP = $("stat-prog"), statCdW = $("stat-countdown-wrap"), statCd = $("stat-countdown");
-const wpmEl = $("wpm"), accEl = $("acc"), mistakesEl = $("mistakes"), progEl = $("prog"), cdWrap = $("cd-wrap"), cdEl = $("cd"), barEl = $("bar");
-const rW = $("r-wpm"), rA = $("r-acc"), rT = $("r-time"), rC = $("r-chars");
-
-// === Tabs ===
-function switchTab(which) {
-  tabSearch.classList.toggle("bg-zinc-900", which==="search");
-  tabSearch.classList.toggle("text-white", which==="search");
-  tabDemo.classList.toggle("bg-zinc-900", which==="demo");
-  tabDemo.classList.toggle("text-white", which==="demo");
-  tabPaste.classList.toggle("bg-zinc-900", which==="paste");
-  tabPaste.classList.toggle("text-white", which==="paste");
-
-  panelSearch.classList.toggle("hidden", which!=="search");
-  panelDemo.classList.toggle("hidden", which!=="demo");
-  panelPaste.classList.toggle("hidden", which!=="paste");
-}
-tabSearch.onclick = ()=> switchTab("search");
-tabDemo.onclick = ()=> switchTab("demo");
-tabPaste.onclick = ()=> switchTab("paste");
-switchTab("search");
-
-// === Demo buttons ===
-function renderDemoButtons() {
-  panelDemo.innerHTML = "";
-  LIB.forEach(item => {
-    const btn = document.createElement("button");
-    btn.className = "px-3 py-2 rounded-lg border text-left hover:border-zinc-400 bg-white";
-    btn.innerHTML = '<div class="font-medium">'+item.title+'</div><div class="text-xs text-zinc-500">'+item.artist+'</div>';
-    btn.onclick = ()=> loadText(item.title+" — "+item.artist+"\n\n"+item.text);
-    panelDemo.appendChild(btn);
-  });
-}
-renderDemoButtons();
-
-// === Timer buttons ===
-["none", 30, 60, 120].forEach(t => {
-  const b = document.createElement("button");
-  b.className = "px-2.5 py-1.5 rounded border bg-white";
-  b.textContent = (t==="none" ? "不限时" : t+"s");
-  b.onclick = ()=> { timerMode = t; updateTimerButtons(); };
-  b.dataset.val = t;
-  timerButtonsWrap.appendChild(b);
-});
-function updateTimerButtons() {
-  [...timerButtonsWrap.children].forEach(ch => {
-    const on = String(ch.dataset.val)===String(timerMode);
-    ch.classList.toggle("bg-zinc-900", on);
-    ch.classList.toggle("text-white", on);
-  });
-  const show = timerMode!=="none" && startedAt && !endedAt;
-  cdWrap.classList.toggle("hidden", !show);
-  statCdW.classList.toggle("hidden", !show);
-}
-updateTimerButtons();
-
-// === Normalization ===
-function normalizeText(src, opts) {
-  let t = src.replace(/\r\n?/g, "\n");
+// —— 文本规范化 —— //
+function normalizeText(src: string, opts: NormOpts): string {
+  let t = src.replace(/\r\n?/g, "\n"); // 统一换行
   if (!opts.keepCase) t = t.toLowerCase();
-  if (!opts.keepPunct) t = t.replace(/[\p{P}\p{S}]/gu, "");
+  if (!opts.keepPunct) t = t.replace(/[\p{P}\p{S}]/gu, ""); // 去标点/符号（Unicode）
   if (opts.normalizeSpaces) {
-    t = t.replace(/[\t\f\v ]+/g, " ");
-    t = t.replace(/\n{2,}/g, "\n\n");
+    t = t.replace(/[\t\f\v ]+/g, " "); // 连续空格
+    t = t.replace(/\n{2,}/g, "\n\n"); // 压缩空行
   }
   return t;
 }
 
-// === Load text ===
-function loadText(text) {
-  rawText = text.trim();
-  typed = ""; startedAt = null; endedAt = null;
-  ghost.value = "";
-  currentText.innerHTML = '<div class="line-clamp-2 whitespace-pre-wrap">'+rawText.slice(0,160)+(rawText.length>160?"…":"")+'</div><div class="text-xs text-zinc-500">长度：'+rawText.length+' 字符</div>';
-  btnStart.disabled = !rawText;
-  hint.classList.add("hidden");
-  resultBox.classList.add("hidden");
-  renderTarget();
-  updateStats();
-}
-btnReset.onclick = ()=> {
-  typed = ""; startedAt = null; endedAt = null; ghost.value = "";
-  hint.classList.toggle("hidden", !rawText);
-  resultBox.classList.add("hidden");
-  renderTarget();
-  updateStats();
+type NormOpts = {
+  keepCase: boolean;
+  keepPunct: boolean;
+  normalizeSpaces: boolean;
 };
-pasteLoad.onclick = ()=> { if (pasteArea.value.trim()) loadText(pasteArea.value.trim()); };
-searchBtn.onclick = ()=> {
-  const q = searchInput.value.trim().toLowerCase();
-  const hits = LIB.filter(i => i.title.toLowerCase().includes(q) || i.artist.toLowerCase().includes(q));
-  if (hits.length) {
-    const it = hits[0];
-    loadText(it.title+" — "+it.artist+"\n\n"+it.text);
-    searchNote.textContent = "";
-    switchTab("demo"); // 进入示例视图
-  } else {
-    searchNote.textContent = q ? `未在演示库中找到 “${q}”。如为受版权保护的歌曲，请粘贴歌词练习。` : "请输入关键词。";
+
+// —— 统计 —— //
+function computeWPM(correctChars: number, ms: number) {
+  const minutes = ms / 60000;
+  if (minutes <= 0) return 0;
+  return Math.round((correctChars / 5) / minutes);
+}
+
+// —— 伪歌词搜索（本地库 + 提示粘贴） —— //
+function searchDemoLibrary(q: string) {
+  const query = q.trim().toLowerCase();
+  const items = Object.values(DEMO_LIBRARY);
+  const hits = items.filter((i) =>
+    i.title.toLowerCase().includes(query) || i.artist.toLowerCase().includes(query)
+  );
+  const note =
+    query && hits.length === 0
+      ? `未在演示库中找到 “${q}”。若为受版权保护的歌曲（如 Try Everything），请改用“粘贴歌词”或接入你自己的歌词 API。`
+      : "";
+  return { hits, note };
+}
+
+// —— 预留：对接第三方歌词 API（可选） —— //
+async function fetchLyrics(_query: string, _apiConfig?: { endpoint: string; token?: string }) {
+  // 提示：此处留空，避免默认调用不稳定/受限的第三方服务。
+  // 你可以在这里实现：调用你的后端代理，或接入合法 Lyrics API。
+  // return { title: string, artist: string, text: string }
+  throw new Error("未配置歌词 API。请改用演示库或粘贴歌词。");
+}
+
+export default function App() {
+  // 源选择
+  const [mode, setMode] = useState<"search" | "demo" | "paste">("search");
+  const [query, setQuery] = useState("");
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  // 选择/文本
+  const [pickedKey, setPickedKey] = useState<keyof typeof DEMO_LIBRARY | "">("");
+  const [pasted, setPasted] = useState("");
+
+  // 目标文本
+  const [rawText, setRawText] = useState("");
+  const [normOpts, setNormOpts] = useState<NormOpts>({ keepCase: true, keepPunct: true, normalizeSpaces: true });
+  const target = useMemo(() => normalizeText(rawText, normOpts), [rawText, normOpts]);
+
+  // 打字状态
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [endedAt, setEndedAt] = useState<number | null>(null);
+  const [timerMode, setTimerMode] = useState<"none" | 30 | 60 | 120>("none");
+  const [typed, setTyped] = useState<string>("");
+  const [focused, setFocused] = useState(false);
+  const ghostRef = useRef<HTMLTextAreaElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  const progress = Math.min(typed.length / Math.max(target.length, 1), 1);
+  const correctChars = useMemo(() => {
+    let c = 0;
+    for (let i = 0; i < typed.length; i++) if (typed[i] === target[i]) c++;
+    return c;
+  }, [typed, target]);
+  const mistakes = typed.length - correctChars;
+
+  const now = Date.now();
+  const elapsed = startedAt ? (endedAt ?? now) - startedAt : 0;
+  const wpm = computeWPM(correctChars, Math.max(elapsed, 1));
+  const acc = typed.length ? Math.max(0, Math.round((correctChars / typed.length) * 100)) : 100;
+
+  // 计时结束
+  useEffect(() => {
+    if (!startedAt || endedAt || timerMode === "none") return;
+    const totalMs = (timerMode as number) * 1000;
+    const id = setInterval(() => {
+      const t = Date.now() - (startedAt ?? Date.now());
+      if (t >= totalMs) {
+        setEndedAt(Date.now());
+        setFocused(false);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, [startedAt, endedAt, timerMode]);
+
+  // 自动滚动到当前字符
+  useEffect(() => {
+    if (!viewportRef.current) return;
+    const current = viewportRef.current.querySelector("[data-cursor='1']") as HTMLElement | null;
+    if (current) current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [typed, target]);
+
+  function resetAll() {
+    setStartedAt(null);
+    setEndedAt(null);
+    setTyped("");
+    setFocused(false);
+    if (ghostRef.current) ghostRef.current.value = "";
   }
-};
 
-// === Typing ===
-function begin() {
-  if (!rawText) return;
-  typed = "";
-  ghost.value = "";
-  startedAt = Date.now(); endedAt = null;
-  hint.classList.add("hidden");
-  resultBox.classList.add("hidden");
-  ghost.focus();
-  renderTarget();
-  updateStats();
-}
-btnStart.onclick = begin;
-
-ghost.addEventListener("input", (e) => {
-  if (!startedAt) startedAt = Date.now();
-  const target = normalizeText(rawText, norm);
-  const val = String(e.target.value).replace(/\r\n?/g, "\n").slice(0, target.length);
-  typed = val;
-  if (typed.length >= target.length) {
-    endedAt = Date.now();
-    showResult();
+  function loadFromDemo(key: keyof typeof DEMO_LIBRARY) {
+    const item = DEMO_LIBRARY[key];
+    setRawText(`${item.title} — ${item.artist}\n\n${item.text}`);
+    setMode("demo");
+    setPickedKey(key);
+    resetAll();
   }
-  renderTarget();
-  updateStats();
-});
 
-again.onclick = begin;
-changeBtn.onclick = ()=> {
-  typed = ""; startedAt = null; endedAt = null; ghost.value = "";
-  resultBox.classList.add("hidden");
-  renderTarget();
-  updateStats();
-};
-
-viewport.addEventListener("click", ()=> ghost.focus());
-
-// === Options ===
-optCase.onchange = ()=> { norm.keepCase = optCase.checked; rerenderAfterOption(); };
-optPunct.onchange = ()=> { norm.keepPunct = optPunct.checked; rerenderAfterOption(); };
-optSpace.onchange = ()=> { norm.normalizeSpaces = optSpace.checked; rerenderAfterOption(); };
-function rerenderAfterOption() {
-  // 当规范化选项改变时，已输入内容重置以避免索引错位
-  typed = "";
-  ghost.value = "";
-  startedAt = null;
-  endedAt = null;
-  renderTarget();
-  updateStats();
-}
-
-// === Rendering ===
-function renderTarget() {
-  const target = normalizeText(rawText, norm);
-  const out = [];
-  for (let i=0;i<target.length;i++) {
-    const ch = target[i];
-    let cls = "";
-    if (i < typed.length) {
-      cls = (typed[i] === ch) ? "text-emerald-600" : "text-rose-600 wrong-char";
-    } else if (i === typed.length) {
-      cls = "cursor-char";
+  async function handleSearchStart() {
+    setApiError(null);
+    const { hits, note } = searchDemoLibrary(query);
+    if (hits.length > 0) {
+      const first = hits[0];
+      setRawText(`${first.title} — ${first.artist}\n\n${first.text}`);
+      setMode("demo");
+      resetAll();
     } else {
-      cls = "text-zinc-500";
+      setApiError(note || "没有结果");
     }
-    const disp = ch === "\n" ? "\n" : ch;
-    out.push('<span class="'+cls.replace(/"/g,'&quot;')+'">'+disp.replace(/&/g,"&amp;").replace(/</g,"&lt;")+'</span>');
   }
-  render.innerHTML = out.join("");
-  // 滚动到光标
-  const cursor = render.querySelector(".cursor-char");
-  if (cursor) {
-    cursor.scrollIntoView({ block: "center", behavior: "smooth" });
+
+  function startWithPasted() {
+    if (!pasted.trim()) return;
+    setRawText(pasted.trim());
+    setMode("paste");
+    resetAll();
   }
-}
 
-// === Stats ===
-function computeWPM(correctChars, ms) {
-  const min = ms / 60000;
-  return min <= 0 ? 0 : Math.round((correctChars/5)/min);
-}
-
-function updateStats() {
-  const target = normalizeText(rawText, norm);
-  const correct = (()=>{ let c=0; for (let i=0;i<typed.length;i++) if (typed[i]===target[i]) c++; return c; })();
-  const mistakes = typed.length - correct;
-  const progress = Math.min(typed.length / Math.max(target.length,1), 1);
-
-  const elapsed = startedAt ? (endedAt ?? Date.now()) - startedAt : 0;
-  const wpm = computeWPM(correct, Math.max(elapsed,1));
-  const acc = typed.length ? Math.max(0, Math.round((correct/typed.length)*100)) : 100;
-
-  wpmEl.textContent = String(wpm);
-  accEl.textContent = acc + "%";
-  mistakesEl.textContent = String(mistakes);
-  progEl.textContent = Math.round(progress*100) + "%";
-  barEl.style.width = (progress*100) + "%";
-
-  statW.textContent = String(wpm);
-  statA.textContent = acc + "%";
-  statP.textContent = Math.round(progress*100) + "%";
-
-  // 倒计时
-  const show = timerMode!=="none" && startedAt && !endedAt;
-  cdWrap.classList.toggle("hidden", !show);
-  statCdW.classList.toggle("hidden", !show);
-}
-
-function showResult() {
-  const target = normalizeText(rawText, norm);
-  const correct = (()=>{ let c=0; for (let i=0;i<typed.length;i++) if (typed[i]===target[i]) c++; return c; })();
-  const elapsed = startedAt ? (endedAt - startedAt) : 0;
-  const wpm = computeWPM(correct, Math.max(elapsed,1));
-  const acc = typed.length ? Math.max(0, Math.round((correct/typed.length)*100)) : 100;
-  rW.textContent = String(wpm);
-  rA.textContent = acc + "%";
-  rT.textContent = (elapsed/1000).toFixed(1) + "s";
-  rC.textContent = typed.length + "/" + target.length;
-  resultBox.classList.remove("hidden");
-}
-
-// === Countdown Loop ===
-setInterval(()=>{
-  if (timerMode==="none" || !startedAt || endedAt) return;
-  const total = Number(timerMode) * 1000;
-  const left = Math.max(0, total - (Date.now() - startedAt));
-  const sec = Math.ceil(left/1000);
-  cdEl.textContent = sec + "s";
-  statCd.textContent = sec + "s";
-  if (left <= 0) {
-    endedAt = Date.now();
-    showResult();
+  function beginTyping() {
+    if (!target) return;
+    setStartedAt(Date.now());
+    setEndedAt(null);
+    setFocused(true);
+    setTyped("");
+    if (ghostRef.current) {
+      ghostRef.current.focus();
+      ghostRef.current.value = "";
+    }
   }
-}, 200);
 
-// === Init with demo ===
-loadText(LIB[0].title+" — "+LIB[0].artist+"\n\n"+LIB[0].text);
-switchTab("demo");
-</script>
-</body>
-</html>
+  function onGhostInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    if (!startedAt) setStartedAt(Date.now());
+    const val = e.target.value.replace(/\r\n?/g, "\n");
+    // 限制长度不超过目标
+    const clipped = val.slice(0, target.length);
+    setTyped(clipped);
+    // 全部打完
+    if (clipped.length >= target.length) {
+      setEndedAt(Date.now());
+      setFocused(false);
+    }
+  }
+
+  function onBackspace(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // 允许退格，不额外处理
+  }
+
+  const remaining = Math.max(target.length - typed.length, 0);
+
+  // 渲染文本为彩色字符
+  const rendered = useMemo(() => {
+    const nodes: JSX.Element[] = [];
+    for (let i = 0; i < target.length; i++) {
+      const ch = target[i];
+      let cls = "";
+      if (i < typed.length) {
+        cls = typed[i] === ch ? "text-emerald-600" : "text-rose-600 underline decoration-rose-400/40";
+      } else if (i === typed.length) {
+        cls = "bg-amber-300/60 text-zinc-900 rounded-sm"; // 光标字符
+      } else {
+        cls = "text-zinc-500";
+      }
+      nodes.push(
+        <span key={i} data-cursor={i === typed.length ? 1 : 0} className={cls}>
+          {ch === "\n" ? "\n" : ch}
+        </span>
+      );
+    }
+    return nodes;
+  }, [target, typed]);
+
+  const timeLeft = useMemo(() => {
+    if (timerMode === "none" || !startedAt || endedAt) return null;
+    const total = (timerMode as number) * 1000;
+    const left = Math.max(0, total - (Date.now() - startedAt));
+    return Math.ceil(left / 1000);
+  }, [timerMode, startedAt, endedAt, now]);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-white to-zinc-50 text-zinc-900">
+      {/* 顶部栏 */}
+      <header className="sticky top-0 z-10 backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/90 border-b border-zinc-200">
+        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center gap-3">
+          <Music className="w-6 h-6" />
+          <h1 className="text-xl font-semibold">TypeBeat — 歌词打字对战（Demo）</h1>
+          <div className="ml-auto flex items-center gap-3 text-sm">
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="px-2 py-1 rounded bg-zinc-100">WPM: <b>{wpm}</b></span>
+              <span className="px-2 py-1 rounded bg-zinc-100">准确率: <b>{acc}%</b></span>
+              <span className="px-2 py-1 rounded bg-zinc-100">进度: <b>{Math.round(progress * 100)}%</b></span>
+              {timeLeft !== null && (
+                <span className="px-2 py-1 rounded bg-zinc-100">倒计时: <b>{timeLeft}s</b></span>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* 主体 */}
+      <main className="mx-auto max-w-5xl px-4 py-6 grid gap-6">
+        {/* 搜索 / 粘贴 / 示例 */}
+        <section className="grid gap-4">
+          <div className="grid md:grid-cols-3 gap-2 text-sm">
+            <button
+              className={`px-3 py-2 rounded-lg border ${mode === "search" ? "bg-zinc-900 text-white" : "bg-white"}`}
+              onClick={() => setMode("search")}
+            >
+              搜索歌曲
+            </button>
+            <button
+              className={`px-3 py-2 rounded-lg border ${mode === "demo" ? "bg-zinc-900 text-white" : "bg-white"}`}
+              onClick={() => setMode("demo")}
+            >
+              选择示例（公共领域）
+            </button>
+            <button
+              className={`px-3 py-2 rounded-lg border ${mode === "paste" ? "bg-zinc-900 text-white" : "bg-white"}`}
+              onClick={() => setMode("paste")}
+            >
+              粘贴歌词/文本
+            </button>
+          </div>
+
+          {mode === "search" && (
+            <div className="grid md:grid-cols-[1fr_auto] gap-2 items-center">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    className="w-full pl-9 pr-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                    placeholder="输入歌名或歌手（演示库/或自行接入 API）…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSearchStart()}
+                  />
+                </div>
+                <button
+                  className="px-3 py-2 rounded-lg bg-zinc-900 text-white flex items-center gap-2"
+                  onClick={handleSearchStart}
+                >
+                  <Play className="w-4 h-4" /> 搜索并加载
+                </button>
+              </div>
+              {apiError && <p className="text-amber-600 text-sm">{apiError}</p>}
+            </div>
+          )}
+
+          {mode === "demo" && (
+            <div className="grid sm:grid-cols-3 gap-2">
+              {Object.entries(DEMO_LIBRARY).map(([key, v]) => (
+                <button
+                  key={key}
+                  className={`px-3 py-2 rounded-lg border text-left hover:border-zinc-400 ${
+                    pickedKey === key ? "bg-zinc-900 text-white" : "bg-white"
+                  }`}
+                  onClick={() => loadFromDemo(key as keyof typeof DEMO_LIBRARY)}
+                >
+                  <div className="font-medium">{v.title}</div>
+                  <div className="text-xs text-zinc-500">{v.artist}</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mode === "paste" && (
+            <div className="grid gap-2">
+              <textarea
+                className="w-full min-h-[160px] p-3 rounded-lg border focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                placeholder={
+                  "在此粘贴你有权使用的歌词/英文文本（保留换行更像歌词）。\n例如：在上方搜索不到 'Try Everything'，可以直接粘贴歌词用于练习。"
+                }
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+              />
+              <div className="flex items-center gap-2">
+                <button className="px-3 py-2 rounded-lg bg-zinc-900 text-white" onClick={startWithPasted}>
+                  加载为练习文本
+                </button>
+                <p className="text-xs text-zinc-500">* 请确保你拥有该文本的使用权限。</p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* 设置 */}
+        <section className="grid md:grid-cols-2 gap-4">
+          <div className="rounded-xl border bg-white p-4 grid gap-3">
+            <div className="font-medium flex items-center gap-2"><Settings className="w-4 h-4"/>打字设置</div>
+            <div className="flex flex-wrap gap-3 text-sm">
+              <label className="inline-flex items-center gap-2 select-none">
+                <input type="checkbox" checked={normOpts.keepCase} onChange={(e)=>setNormOpts(v=>({...v, keepCase: e.target.checked}))} />
+                区分大小写
+              </label>
+              <label className="inline-flex items-center gap-2 select-none">
+                <input type="checkbox" checked={normOpts.keepPunct} onChange={(e)=>setNormOpts(v=>({...v, keepPunct: e.target.checked}))} />
+                保留标点
+              </label>
+              <label className="inline-flex items-center gap-2 select-none">
+                <input type="checkbox" checked={normOpts.normalizeSpaces} onChange={(e)=>setNormOpts(v=>({...v, normalizeSpaces: e.target.checked}))} />
+                规范空白
+              </label>
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <span>计时模式：</span>
+              {["none", 30, 60, 120].map((t) => (
+                <button
+                  key={String(t)}
+                  onClick={() => setTimerMode(t as any)}
+                  className={`px-2.5 py-1.5 rounded border ${timerMode===t?"bg-zinc-900 text-white":"bg-white"}`}
+                >{t === "none"? "不限时" : `${t}s`}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-white p-4 grid gap-3">
+            <div className="font-medium flex items-center gap-2"><Music className="w-4 h-4"/>当前文本</div>
+            <div className="text-sm text-zinc-600">
+              {rawText ? <>
+                <div className="line-clamp-2 whitespace-pre-wrap">{rawText.slice(0, 160)}{rawText.length>160?"…":""}</div>
+                <div className="text-xs text-zinc-500">长度：{rawText.length} 字符</div>
+              </> : <span>尚未加载文本。请选择示例、搜索（演示库）或粘贴歌词。</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <button className="px-3 py-2 rounded-lg bg-zinc-900 text-white disabled:opacity-50" disabled={!rawText} onClick={beginTyping}>
+                <Play className="inline-block w-4 h-4 mr-1"/> 开始练习
+              </button>
+              <button className="px-3 py-2 rounded-lg border" onClick={resetAll}>
+                <RefreshCw className="inline-block w-4 h-4 mr-1"/> 重置
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* 打字区 */}
+        <section className="rounded-2xl border bg-white p-4">
+          <div className="flex items-center justify-between mb-3 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-1 rounded bg-zinc-100">WPM <b>{wpm}</b></span>
+              <span className="px-2 py-1 rounded bg-zinc-100">准确率 <b>{acc}%</b></span>
+              <span className="px-2 py-1 rounded bg-zinc-100">错误 <b>{mistakes}</b></span>
+              <span className="px-2 py-1 rounded bg-zinc-100">进度 <b>{Math.round(progress*100)}%</b></span>
+              {timeLeft !== null && (
+                <span className="px-2 py-1 rounded bg-zinc-100">倒计时 <b>{timeLeft}s</b></span>
+              )}
+            </div>
+            <div className="w-40 h-2 rounded bg-zinc-100 overflow-hidden">
+              <div className="h-full bg-zinc-900" style={{ width: `${progress*100}%` }} />
+            </div>
+          </div>
+
+          <div
+            ref={viewportRef}
+            className={`relative min-h-[240px] max-h-[420px] whitespace-pre-wrap leading-7 tracking-wide rounded-xl border p-4 overflow-auto ${
+              focused ? "ring-2 ring-zinc-300" : ""
+            }`}
+            onClick={() => ghostRef.current?.focus()}
+          >
+            {!rawText ? (
+              <div className="text-zinc-500">请先选择/粘贴一段歌词或文本，然后点击 “开始练习”。</div>
+            ) : (
+              <div className="font-mono text-[15px]">{rendered}</div>
+            )}
+
+            {/* 隐形输入 */}
+            <textarea
+              ref={ghostRef}
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              inputMode="latin"
+              className="absolute inset-0 opacity-0 pointer-events-auto"
+              onChange={onGhostInput}
+              onKeyDown={onBackspace}
+            />
+          </div>
+
+          {/* 结束面板 */}
+          {endedAt && (
+            <div className="mt-4 p-4 rounded-xl border bg-zinc-50">
+              <div className="text-lg font-semibold mb-2">本次成绩</div>
+              <div className="flex flex-wrap gap-3 text-sm">
+                <span className="px-2 py-1 rounded bg-white border">WPM <b>{wpm}</b></span>
+                <span className="px-2 py-1 rounded bg-white border">准确率 <b>{acc}%</b></span>
+                <span className="px-2 py-1 rounded bg-white border">用时 <b>{(elapsed/1000).toFixed(1)}s</b></span>
+                <span className="px-2 py-1 rounded bg-white border">字符数 <b>{typed.length}/{target.length}</b></span>
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <button className="px-3 py-2 rounded-lg bg-zinc-900 text-white" onClick={beginTyping}><Play className="w-4 h-4 mr-1 inline-block"/>再来一次</button>
+                <button className="px-3 py-2 rounded-lg border" onClick={resetAll}><RefreshCw className="w-4 h-4 mr-1 inline-block"/>换个文本</button>
+              </div>
+            </div>
+          )}
+
+          {/* 引导提示 */}
+          {!startedAt && rawText && (
+            <p className="mt-3 text-sm text-zinc-500">
+              提示：开始后直接打字即可。退格可改错；选用“计时模式”可进行限时挑战。
+            </p>
+          )}
+        </section>
+
+        {/* 底部说明 */}
+        <footer className="text-xs text-zinc-500 grid gap-1 pb-8">
+          <p>
+            版权提示：请仅使用你拥有使用权的歌词或公共领域文本。演示库中的文本为公共领域，
+            不包含如 “Try Everything” 等受版权保护作品的完整歌词。
+          </p>
+          <p>
+            想要接入在线歌词搜索？你可以将 <code>fetchLyrics()</code> 函数接到你的后端代理或合法 API，
+            并在“搜索歌曲”页签中触发加载。
+          </p>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
